@@ -246,6 +246,30 @@ class PMLLMiner:
             last_hashes = current_hashes
             last_time = current_time
     
+    async def update_job(self, job_data: Dict):
+        """Update mining job with new data from pool"""
+        if not self.is_mining:
+            return
+            
+        # Update current block with new job data
+        self.current_block = {
+            "height": self.current_block.get("height", 872451) + 1,
+            "previousHash": job_data.get("prev_hash", ""),
+            "merkleRoot": job_data.get("coinb1", "") + job_data.get("coinb2", ""),
+            "timestamp": int(time.time()),
+            "bits": job_data.get("nbits", 0x1703a7c2),
+            "target": 0x0000000000000003a7c200000000000000000000000000000000000000000000
+        }
+        
+        # Reset ant nonce ranges for new job
+        nonce_range_size = 0xFFFFFFFF // 8
+        for i, ant in enumerate(self.ants):
+            ant["nonce_range"] = {
+                "start": i * nonce_range_size,
+                "end": (i + 1) * nonce_range_size - 1
+            }
+            ant["status"] = "mining"
+    
     def stop_mining(self):
         """Stop mining process"""
         self.is_mining = False
