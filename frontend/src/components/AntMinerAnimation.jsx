@@ -73,7 +73,7 @@ const AntMinerAnimation = ({ ants, ismining }) => {
         ctx.fillText(`#${ant.id}`, x - 10, y + 25);
       });
       
-      if (isming) {
+      if (ismining) {
         animationRef.current = requestAnimationFrame(animate);
       }
     };
