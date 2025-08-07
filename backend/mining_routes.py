@@ -24,7 +24,7 @@ DEFAULT_POOL_CONFIG = {
     "password": "x"
 }
 
-@router.post("/start", response_model=Dict[str, any])
+@router.post("/start")
 async def start_mining(request: MiningRequest):
     """
     Start Bitcoin mining with PMLL optimization and Braiins Pool
