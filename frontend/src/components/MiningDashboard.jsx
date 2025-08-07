@@ -163,7 +163,7 @@ const MiningDashboard = () => {
           {/* Mining Statistics */}
           <div className="space-y-6">
             <MiningStats stats={miningStats} />
-            <PoolConnection isConnected={isming} />
+            <PoolConnection isConnected={ismining} />
           </div>
         </div>
       </div>
