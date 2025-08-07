@@ -54,7 +54,7 @@ const AntMinerAnimation = ({ ants, ismining }) => {
         ctx.fill();
         
         // Mining activity indicator
-        if (isming && ant.status === 'mining') {
+        if (ismining && ant.status === 'mining') {
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 2;
           ctx.beginPath();
