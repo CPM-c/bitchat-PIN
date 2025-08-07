@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 from typing import List
 import uuid
 from datetime import datetime
+
+# Import mining routes
+from mining_routes import router as mining_router, blockchain_router, pool_router, wallet_router
 
 
 ROOT_DIR = Path(__file__).parent
@@ -20,7 +23,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # Create the main app without a prefix
-app = FastAPI()
+app = FastAPI(title="Bitcoin Ant Colony Miner", version="1.0.0")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -38,7 +41,12 @@ class StatusCheckCreate(BaseModel):
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {
+        "message": "🐜 Bitcoin Ant Colony Miner API", 
+        "version": "1.0.0",
+        "features": ["PMLL Algorithm", "Braiins Pool", "Real Bitcoin Mining"],
+        "wallet": "bc1qr4tvstras40rdsdxhxer2c2x5nzuukk7araea5"
+    }
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
@@ -52,7 +60,13 @@ async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
 
-# Include the router in the main app
+# Include mining routes
+app.include_router(mining_router)
+app.include_router(blockchain_router) 
+app.include_router(pool_router)
+app.include_router(wallet_router)
+
+# Include the main API router
 app.include_router(api_router)
 
 app.add_middleware(
@@ -69,6 +83,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🐜 Bitcoin Ant Colony Miner API Started")
+    logger.info("Features: PMLL Algorithm, Braiins Pool Connection, Real Mining")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
