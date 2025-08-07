@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -6,57 +6,223 @@ import { Badge } from './ui/badge';
 import AntMinerAnimation from './AntMinerAnimation';
 import MiningStats from './MiningStats';
 import PoolConnection from './PoolConnection';
-import { mockMiningData } from '../data/mock';
+import { miningAPI } from '../api/miningAPI';
+import { useToast } from '../hooks/use-toast';
 import { Activity, Zap, Users, Coins } from 'lucide-react';
 
 const MiningDashboard = () => {
   const [ismining, setIsMining] = useState(false);
-  const [miningStats, setMiningStats] = useState(mockMiningData.initialStats);
-  const [ants, setAnts] = useState(mockMiningData.ants);
-  const [currentBlock, setCurrentBlock] = useState(mockMiningData.currentBlock);
-
-  useEffect(() => {
-    let interval;
-    if (ismining) {
-      interval = setInterval(() => {
-        // Simulate real-time mining updates
-        setMiningStats(prev => ({
-          ...prev,
-          hashRate: prev.hashRate + Math.random() * 10,
-          totalHashes: prev.totalHashes + Math.floor(Math.random() * 1000000),
-          sharesFound: prev.sharesFound + (Math.random() > 0.8 ? 1 : 0),
-          uptime: prev.uptime + 1
-        }));
-
-        // Update ant activities
-        setAnts(prev => prev.map(ant => ({
-          ...ant,
-          currentHash: generateRandomHash(),
-          hashesComputed: ant.hashesComputed + Math.floor(Math.random() * 1000),
-          status: Math.random() > 0.1 ? 'mining' : (Math.random() > 0.5 ? 'validating' : 'idle')
-        })));
-
-        // Simulate block progression
-        setCurrentBlock(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + Math.random() * 0.5, 100),
-          difficulty: prev.difficulty + Math.random() * 0.01
-        }));
-      }, 1000);
+  const [miningStats, setMiningStats] = useState({
+    hashRate: 0,
+    totalHashes: 0,
+    sharesFound: 0,
+    acceptedShares: 0,
+    rejectedShares: 0,
+    uptime: 0,
+    pmll_optimization: {
+      active: "false",
+      memory_usage: "0",
+      efficiency_gain: "0.0"
     }
-    return () => clearInterval(interval);
+  });
+  const [ants, setAnts] = useState([]);
+  const [currentBlock, setCurrentBlock] = useState({
+    height: 0,
+    progress: 0,
+    difficulty: 0,
+    target: "",
+    reward: 3.125,
+    estimatedTime: ""
+  });
+  const [poolStatus, setPoolStatus] = useState({
+    connected: false,
+    name: "Braiins Pool",
+    url: "",
+    ping: 0,
+    difficulty: 0
+  });
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  const walletAddress = "bc1qr4tvstras40rdsdxhxer2c2x5nzuukk7araea5";
+
+  // Fetch blockchain data periodically
+  const fetchBlockchainData = useCallback(async () => {
+    try {
+      const blockData = await miningAPI.getCurrentBlock();
+      if (blockData) {
+        setCurrentBlock(blockData);
+      }
+
+      const poolData = await miningAPI.getPoolStatus();
+      if (poolData) {
+        setPoolStatus(poolData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch blockchain data:', error);
+    }
+  }, []);
+
+  // Fetch mining data when mining is active
+  const fetchMiningData = useCallback(async () => {
+    if (!ismining || !miningAPI.hasActiveSession()) return;
+
+    try {
+      const [statsData, antsData] = await Promise.all([
+        miningAPI.getMiningStats(),
+        miningAPI.getAntStates()
+      ]);
+
+      if (statsData) {
+        setMiningStats(statsData);
+      }
+
+      if (antsData) {
+        setAnts(antsData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch mining data:', error);
+    }
   }, [ismining]);
 
-  const generateRandomHash = () => {
-    return Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  // Initialize data on component mount
+  useEffect(() => {
+    fetchBlockchainData();
+    
+    // Set up intervals for data fetching
+    const blockchainInterval = setInterval(fetchBlockchainData, 10000); // Every 10 seconds
+    const miningInterval = setInterval(fetchMiningData, 1000); // Every second when mining
+
+    return () => {
+      clearInterval(blockchainInterval);
+      clearInterval(miningInterval);
+    };
+  }, [fetchBlockchainData, fetchMiningData]);
+
+  // WebSocket connection for real-time updates
+  useEffect(() => {
+    let ws = null;
+
+    if (ismining && miningAPI.hasActiveSession()) {
+      try {
+        ws = miningAPI.createWebSocket();
+        
+        if (ws) {
+          ws.onopen = () => {
+            console.log('🐜 WebSocket connected for real-time mining data');
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              
+              if (data.stats) {
+                setMiningStats(data.stats);
+              }
+              
+              if (data.ants) {
+                setAnts(data.ants);
+              }
+              
+              if (data.block) {
+                setCurrentBlock(prev => ({ ...prev, ...data.block }));
+              }
+              
+              if (data.pool_status) {
+                setPoolStatus(data.pool_status);
+              }
+            } catch (error) {
+              console.error('WebSocket message parsing error:', error);
+            }
+          };
+
+          ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+          };
+
+          ws.onclose = () => {
+            console.log('WebSocket disconnected');
+          };
+        }
+      } catch (error) {
+        console.error('Failed to create WebSocket:', error);
+      }
+    }
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [ismining]);
+
+  const handleStartMining = async () => {
+    setLoading(true);
+    try {
+      const result = await miningAPI.startMining(walletAddress);
+      
+      setIsMining(true);
+      toast({
+        title: "Mining Started! 🐜",
+        description: result.message || "Bitcoin Ant Colony mining has begun with PMLL optimization!",
+        duration: 5000,
+      });
+      
+      // Fetch initial data
+      await fetchMiningData();
+      
+    } catch (error) {
+      console.error('Failed to start mining:', error);
+      toast({
+        title: "Mining Start Failed ❌",
+        description: error.response?.data?.detail || "Failed to start mining. Please try again.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleStartMining = () => {
-    setIsMining(true);
-  };
-
-  const handleStopMining = () => {
-    setIsMining(false);
+  const handleStopMining = async () => {
+    setLoading(true);
+    try {
+      const result = await miningAPI.stopMining();
+      
+      setIsMining(false);
+      toast({
+        title: "Mining Stopped ⏹️",
+        description: "Mining session terminated successfully",
+        duration: 3000,
+      });
+      
+      // Reset states
+      setAnts([]);
+      setMiningStats({
+        hashRate: 0,
+        totalHashes: 0,
+        sharesFound: 0,
+        acceptedShares: 0,
+        rejectedShares: 0,
+        uptime: 0,
+        pmll_optimization: {
+          active: "false",
+          memory_usage: "0",
+          efficiency_gain: "0.0"
+        }
+      });
+      
+    } catch (error) {
+      console.error('Failed to stop mining:', error);
+      toast({
+        title: "Stop Mining Failed ❌",
+        description: error.response?.data?.detail || "Failed to stop mining.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,6 +235,9 @@ const MiningDashboard = () => {
           </h1>
           <p className="text-lg text-gray-600">
             Powered by PMLL & Connected to Braiins Pool
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            Wallet: {walletAddress}
           </p>
         </div>
 
@@ -84,22 +253,27 @@ const MiningDashboard = () => {
             <div className="flex items-center gap-4">
               <Button 
                 onClick={handleStartMining} 
-                disabled={ismining}
+                disabled={ismining || loading}
                 className="bg-green-600 hover:bg-green-700"
               >
                 <Zap className="mr-2 h-4 w-4" />
-                Start Mining
+                {loading ? "Starting..." : "Start Mining"}
               </Button>
               <Button 
                 onClick={handleStopMining} 
-                disabled={!ismining}
+                disabled={!ismining || loading}
                 variant="destructive"
               >
-                Stop Mining
+                {loading ? "Stopping..." : "Stop Mining"}
               </Button>
               <Badge variant={ismining ? "default" : "secondary"}>
                 {ismining ? "Mining Active" : "Mining Stopped"}
               </Badge>
+              {miningAPI.hasActiveSession() && (
+                <Badge variant="outline">
+                  Session: {miningAPI.getSessionId()?.slice(0, 8)}...
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -109,7 +283,7 @@ const MiningDashboard = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Coins className="h-5 w-5" />
-              Current Block: {currentBlock.height}
+              Current Block: {currentBlock.height || "Loading..."}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -117,26 +291,26 @@ const MiningDashboard = () => {
               <div>
                 <div className="flex justify-between text-sm mb-2">
                   <span>Block Progress</span>
-                  <span>{currentBlock.progress.toFixed(2)}%</span>
+                  <span>{currentBlock.progress?.toFixed(2) || 0}%</span>
                 </div>
-                <Progress value={currentBlock.progress} className="h-3" />
+                <Progress value={currentBlock.progress || 0} className="h-3" />
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
                   <p className="text-gray-500">Difficulty</p>
-                  <p className="font-mono">{currentBlock.difficulty.toFixed(2)}T</p>
+                  <p className="font-mono">{currentBlock.difficulty?.toFixed(2) || "0"}T</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Target Hash</p>
-                  <p className="font-mono text-xs">{currentBlock.target}</p>
+                  <p className="font-mono text-xs">{currentBlock.target?.slice(0, 20) || "Loading..."}...</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Reward</p>
-                  <p className="font-semibold">{currentBlock.reward} BTC</p>
+                  <p className="font-semibold">{currentBlock.reward || 3.125} BTC</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Time Left</p>
-                  <p className="font-semibold">{currentBlock.estimatedTime}</p>
+                  <p className="font-semibold">{currentBlock.estimatedTime || "Calculating..."}</p>
                 </div>
               </div>
             </div>
@@ -163,7 +337,7 @@ const MiningDashboard = () => {
           {/* Mining Statistics */}
           <div className="space-y-6">
             <MiningStats stats={miningStats} />
-            <PoolConnection isConnected={ismining} />
+            <PoolConnection poolStatus={poolStatus} />
           </div>
         </div>
       </div>
