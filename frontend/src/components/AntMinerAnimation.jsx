@@ -94,7 +94,7 @@ const AntMinerAnimation = ({ ants, ismining }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [ants, isming]);
+  }, [ants, ismining]);
 
   const getStatusCount = (status) => {
     return ants.filter(ant => ant.status === status).length;
