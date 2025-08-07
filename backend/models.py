@@ -23,10 +23,10 @@ class MiningStats(BaseModel):
     acceptedShares: int
     rejectedShares: int
     uptime: int
-    pmll_optimization: Dict[str, any] = {
-        "active": True,
-        "memory_usage": 0,
-        "efficiency_gain": 0.0
+    pmll_optimization: Dict[str, str] = {
+        "active": "true",
+        "memory_usage": "0",
+        "efficiency_gain": "0.0"
     }
 
 class AntMiner(BaseModel):
